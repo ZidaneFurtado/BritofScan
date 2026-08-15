@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BritofScan — Plataforma de Penetration Testing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ─── AUTENTICAÇÃO ──────────────────────────────────────────────────────── -->
+<div id="auth-overlay">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <span class="logo-icon"></span>
+      <h1>BritofScan</h1>
+      <p>Plataforma Educacional de Penetration Testing</p>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="mudarAbaAuth('login')">Entrar</button>
+      <button class="auth-tab" onclick="mudarAbaAuth('registo')">Registar</button>
+    </div>
+    <div id="form-login" class="auth-form active">
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="login-email" placeholder="o.teu@email.pt" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-primary" onclick="fazerLogin()">Entrar</button>
+    </div>
+    <div id="form-registo" class="auth-form">
+      <div class="form-group">
+        <label>Nome completo</label>
+        <input type="text" id="reg-nome" placeholder="O Teu Nome">
+      </div>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="reg-email" placeholder="o.teu@email.pt">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="reg-password" placeholder="Mínimo 8 caracteres">
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select id="reg-role">
+          <option value="estudante">Estudante</option>
+          <option value="professor">Professor</option>
+        </select>
+      </div>
+      <button class="btn-primary" onclick="fazerRegisto()">Criar Conta</button>
+    </div>
+    <div id="auth-erro" class="auth-erro"></div>
+  </div>
+</div>
+
+<!-- ─── APLICAÇÃO PRINCIPAL ───────────────────────────────────────────────── -->
+<div id="app">
+  <div class="layout">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-brand"><span></span> BritofScan</div>
+      <div class="topbar-user">
+        <div class="user-badge">
+          <span id="user-nome">—</span>
+          <span id="user-role-badge" class="role-tag">—</span>
+        </div>
+        <button class="btn-logout" onclick="fazerLogout()">Sair</button>
+      </div>
+    </header>
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar">
+      <div class="nav-section">
+        <div class="nav-label">Pentest</div>
+        <button class="nav-item active" onclick="navegar('scan')" data-page="scan">
+          <span class="nav-icon"></span> Novo Scan
+        </button>
+        <button class="nav-item" onclick="navegar('resultados')" data-page="resultados">
+          <span class="nav-icon"></span> Resultados
+        </button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Dados</div>
+        <button class="nav-item" onclick="navegar('historico')" data-page="historico">
+          <span class="nav-icon"></span> Histórico
+        </button>
+        <button class="nav-item" onclick="navegar('relatorios')" data-page="relatorios">
+          <span class="nav-icon"></span> Relatórios
+        </button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Info</div>
+        <button class="nav-item" onclick="navegar('ferramentas')" data-page="ferramentas">
+          <span class="nav-icon"></span> Ferramentas
+        </button>
+      </div>
+    </nav>
+
+    <!-- CONTEÚDO -->
+    <main class="main">
+
+      <!-- NOVO SCAN -->
+      <div id="page-scan" class="page active">
+        <div class="page-header">
+          <h2>Novo Scan</h2>
+          <p>Inicia um scan de penetration testing educacional num alvo autorizado</p>
+        </div>
+        <div class="scan-form">
+          <div class="scan-input-group">
+            <input type="text" id="scan-target" placeholder="https://exemplo.pt ou 192.168.1.1"/>
+          </div>
+          <div class="mode-selector">
+            <button class="mode-btn stealth active" onclick="selecionarModo('stealth')" data-mode="stealth">
+               Stealth<br><small style="opacity:.7;font-weight:400">Silencioso</small>
+            </button>
+            <button class="mode-btn standard" onclick="selecionarModo('standard')" data-mode="standard">
+               Standard<br><small style="opacity:.7;font-weight:400">Equilibrado</small>
+            </button>
+            <button class="mode-btn aggressive" onclick="selecionarModo('aggressive')" data-mode="aggressive">
+               Aggressive<br><small style="opacity:.7;font-weight:400">Completo</small>
+            </button>
+          </div>
+          <button id="btn-iniciar-scan" class="btn-scan" onclick="iniciarScan()">
+            <span></span> Iniciar Scan
+          </button>
+        </div>
+        <div id="fases-container" class="fases-container">
+          <div class="fases-grid">
+            <div class="fase-card" id="fase-1">
+              <div class="fase-icon"></div>
+              <div class="fase-nome">Reconhecimento</div>
+              <div class="fase-estado aguarda" id="fase-1-estado">Aguarda</div>
+            </div>
+            <div class="fase-card" id="fase-2">
+              <div class="fase-icon"></div>
+              <div class="fase-nome">Análise Web</div>
+              <div class="fase-estado aguarda" id="fase-2-estado">Aguarda</div>
+            </div>
+            <div class="fase-card" id="fase-3">
+              <div class="fase-icon"></div>
+              <div class="fase-nome">Vulnerabilidades</div>
+              <div class="fase-estado aguarda" id="fase-3-estado">Aguarda</div>
+            </div>
+            <div class="fase-card" id="fase-4">
+              <div class="fase-icon"></div>
+              <div class="fase-nome">Correlação</div>
+              <div class="fase-estado aguarda" id="fase-4-estado">Aguarda</div>
+            </div>
+          </div>
+          <div class="progress-container">
+            <div class="progress-label">
+              <span id="progress-label">A inicializar...</span>
+              <span id="progress-pct">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+          </div>
+          <div class="terminal" id="terminal"></div>
+        </div>
+      </div>
+
+      <!-- RESULTADOS -->
+      <div id="page-resultados" class="page">
+        <div class="page-header">
+          <h2>Resultados</h2>
+          <p id="resultados-alvo">Inicia um scan para ver os resultados</p>
+        </div>
+        <div id="resultados-vazio" class="empty-state">
+          <div class="empty-icon"></div>
+          <h3>Sem resultados ainda</h3>
+          <p>Inicia um scan na aba "Novo Scan" para ver os resultados aqui</p>
+        </div>
+        <div id="resultados-conteudo" style="display:none">
+          <div class="metrics-grid" id="metrics-grid"></div>
+          <div id="correlacoes-section"></div>
+          <div class="section-title"> Todos os Findings</div>
+          <div id="findings-list"></div>
+        </div>
+      </div>
+
+      <!-- HISTÓRICO -->
+      <div id="page-historico" class="page">
+        <div class="page-header">
+          <h2> Histórico de Scans</h2>
+          <p>Todos os scans realizados na plataforma</p>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden">
+          <table class="historico-table">
+            <thead>
+              <tr>
+                <th>Alvo</th><th>Modo</th><th>Estado</th>
+                <th>Risco</th><th>Findings</th><th>Data</th><th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="historico-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:3rem;color:var(--muted)">A carregar...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RELATÓRIOS -->
+      <div id="page-relatorios" class="page">
+        <div class="page-header">
+          <h2> Relatórios</h2>
+          <p>Exporta os resultados em HTML, Markdown ou JSON</p>
+        </div>
+        <div id="relatorios-grid" class="relatorios-grid">
+          <div class="empty-state" style="grid-column:1/-1">
+            <div class="empty-icon"></div>
+            <h3>Sem relatórios</h3>
+            <p>Os relatórios aparecem aqui após concluir scans</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- FERRAMENTAS -->
+      <div id="page-ferramentas" class="page">
+        <div class="page-header">
+          <h2> Ferramentas Instaladas</h2>
+          <p>Arsenal completo de ferramentas de penetration testing</p>
+        </div>
+        <div class="section-title" style="margin-bottom:1rem"> Fase 1 — Reconhecimento</div>
+        <div class="ferramentas-grid" style="margin-bottom:2rem" id="tools-fase1"></div>
+        <div class="section-title" style="margin-bottom:1rem"> Fase 2 — Análise Web</div>
+        <div class="ferramentas-grid" style="margin-bottom:2rem" id="tools-fase2"></div>
+        <div class="section-title" style="margin-bottom:1rem"> Fase 3 — Vulnerabilidades</div>
+        <div class="ferramentas-grid" id="tools-fase3"></div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Socket.IO e JavaScript da aplicação -->
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

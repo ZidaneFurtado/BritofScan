@@ -1,0 +1,5 @@
+db.json
+*.json
+frontend/
+britofscan_reports/
+/tmp/
