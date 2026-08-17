@@ -95,7 +95,6 @@ async function executarNmap(host, mode, emitir, adicionarFinding) {
   }
 
   const configs = {
-    // -sV removido de todos os modos — demasiado lento e trigera rate limiting AWS
     stealth:    { args: ['-sT', '-Pn', '-T2', '-p', '21,22,23,25,80,443,445,3306,5432,6379,8080,8443,27017', '--open', host], timeout: 30000 },
     standard:   { args: ['-sT', '-Pn', '-T3', '-p', '21,22,23,25,80,443,445,3306,5432,6379,8080,8443,27017,3389,5900,5000,8000,8888', '--open', host], timeout: 45000 },
     aggressive: { args: ['-sT', '-Pn', '-T3', '--top-ports', '200', '--open', host], timeout: 90000 },
@@ -157,12 +156,32 @@ async function executarHarvester(host, emitir, adicionarFinding) {
     return;
   }
   emitir('[HARVESTER] a recolher emails e dados publicos...', 'info', 1);
-  await executarComandoSeguro('theHarvester', ['-d', host, '-b', 'bing', '-l', '20'],
+  await executarComandoSeguro('theHarvester', ['-d', host, '-b', 'crtsh', '-l', '20'],
     l => {
-      if (l.includes('@') && l.includes('.') && !l.startsWith('[') && !l.startsWith('-')) {
-        emitir(`[HARVESTER] ${l}`, 'output', 1);
+      const li = l.trim();
+      if (!li) return;
+
+      if (/^\[\*\]\s*Hosts found/i.test(li))  { seccaoAtual = 'hosts';  emitir(`[HARVESTER] ${li}`, 'info', 1); return; }
+      if (/^\[\*\]\s*Emails found/i.test(li)) { seccaoAtual = 'emails'; emitir(`[HARVESTER] ${li}`, 'info', 1); return; }
+      if (/^\[\*\]\s*No (hosts|emails|IPs|people) found/i.test(li)) { seccaoAtual = null; emitir(`[HARVESTER] ${li}`, 'output', 1); return; }
+      if (/^\[\*\]/.test(li)) { seccaoAtual = null; emitir(`[HARVESTER] ${li}`, 'info', 1); return; }
+      if (/^-+$/.test(li)) return; // separador "-----"
+
+      if (seccaoAtual === 'hosts') {
+        emitir(`[HARVESTER] host: ${li}`, 'output', 1);
         adicionarFinding(
-          `Email exposto: ${l.trim()}`, 'Email encontrado via OSINT.',
+          `Subdominio exposto (Certificate Transparency): ${li}`,
+          `Host encontrado via logs publicos de certificados (crt.sh), associado a ${host}.`,
+          'theHarvester', 1, 3, 7,
+          'Confirmar se o subdominio e necessario e esta devidamente protegido.', null, false
+        );
+        return;
+      }
+
+      if (seccaoAtual === 'emails' && li.includes('@')) {
+        emitir(`[HARVESTER] email: ${li}`, 'output', 1);
+        adicionarFinding(
+          `Email exposto: ${li}`, 'Email encontrado via OSINT (Certificate Transparency).',
           'theHarvester', 1, 4, 8,
           'Remover emails corporativos de publicacoes publicas.', null, false
         );
