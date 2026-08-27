@@ -16,8 +16,6 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
   emitir('[3/4] VULNERABILIDADES', 'phase', 3);
 
   // ── HEADERS + COOKIES ─────────────────────────────────────────────────────────
-  // Um único curl GET com -D - captura headers e cookies em simultâneo
-  // Evita request extra que trigger rate limiting do servidor
   progresso('Headers de seguranca', 1, 4, '#ffcc00');
   emitir('[HEADERS] a auditar headers de seguranca...', 'info', 3);
 

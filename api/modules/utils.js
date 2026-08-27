@@ -65,7 +65,7 @@ function executarComandoSeguro(cmd, args = [], onLinha = () => {}, timeout = 150
   });
 }
 
-// HTTP GET robusto — headers completos tipo browser para compatibilidade com IIS/AWS
+// HTTP GET — headers completos tipo browser para compatibilidade com IIS/AWS
 function httpGet(url, timeout = 8000) {
   return new Promise(resolve => {
     const mod   = url.startsWith('https') ? require('https') : require('http');
