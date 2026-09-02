@@ -18,7 +18,7 @@ router.post('/register', authLimiter, async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({ erro: 'Password deve ter pelo menos 8 caracteres' });
     }
-    if (!['estudante', 'professor', 'admin'].includes(role)) {
+    if (!['estudante', 'professor'].includes(role)) {
       return res.status(400).json({ erro: 'Role inválida — usa: estudante, professor ou admin' });
     }
 
