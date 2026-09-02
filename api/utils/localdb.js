@@ -1,5 +1,5 @@
 // Base de dados local — armazenamento em ficheiro JSON
-// Substitui o Firebase: funciona sem qualquer conta ou configuração externa.
+// Substitui o Firebase, e fica base de dados primária
 const fs   = require('fs');
 const path = require('path');
 

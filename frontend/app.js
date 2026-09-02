@@ -197,7 +197,7 @@ async function iniciarScan() {
     const data = await res.json();
     if (!res.ok) {
       alert(data.erro || data.error || 'Erro ao iniciar scan');
-      btn.disabled = false; btn.innerHTML = '<span>🔍</span> Iniciar Scan';
+      btn.disabled = false; btn.innerHTML = '<span></span> Iniciar Scan';
       return;
     }
     scanAtual = data.scanId || data.id;
@@ -208,7 +208,7 @@ async function iniciarScan() {
   } catch (e) {
     console.error('[Scan] Erro:', e);
     alert('Erro de ligação ao servidor');
-    btn.disabled = false; btn.innerHTML = '<span>🔍</span> Iniciar Scan';
+    btn.disabled = false; btn.innerHTML = '<span></span> Iniciar Scan';
   }
 }
 
@@ -347,9 +347,9 @@ function renderizarResultados(scan, target) {
           </div>
           <div class="finding-body">
             <div class="finding-meta">
-              ${tool  ?`<span>🔧 ${escapeHtml(tool)}</span>`:''}
-              ${f.port?`<span>🔌 Porto ${f.port}</span>`:''}
-              ${f.url ?`<span>🔗 <a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent2)">${escapeHtml(f.url)}</a></span>`:''}
+              ${tool  ?`<span>${escapeHtml(tool)}</span>`:''}
+              ${f.port?`<span>Porto ${f.port}</span>`:''}
+              ${f.url ?`<span><a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent2)">${escapeHtml(f.url)}</a></span>`:''}
             </div>
             ${desc?`<div class="finding-desc">${escapeHtml(desc)}</div>`:''}
             ${rem ?`<div class="finding-remediacao"><strong> Remediação:</strong> ${escapeHtml(rem)}</div>`:''}
