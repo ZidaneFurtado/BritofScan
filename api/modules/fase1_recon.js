@@ -3,6 +3,7 @@ const { ferramentaInstalada, executarComandoSeguro } = require('./utils');
 const { existsSync } = require('fs');
 const path = require('path');
 const os   = require('os');
+const { VETORES_PORTA, VETORES_CVE } = require('./scoring');
 
 const PORTOS_INFO = {
   '21':    { impacto: 8, desc: 'FTP inseguro - usar SFTP.' },
@@ -17,16 +18,21 @@ const PORTOS_INFO = {
   '8443':  { impacto: 3, desc: 'HTTPS alternativo.' },
 };
 
-
 const CVES_POR_VERSAO = [
   { porto: '21',   padrao: /vsftpd\s*2\.3\.4/i,        cve: 'CVE-2011-2523' },
   { porto: '3306', padrao: /mysql\s*5\.5\.[0-9]+/i,     cve: 'CVE-2016-6663' },
   { porto: '22',   padrao: /openssh\s*7\.4/i,           cve: 'CVE-2018-15473' },
 ];
 
+
+const VETOR_PORTA_GENERICO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
+
+
+const VETOR_SUBDOMINIO_EXPOSTO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N';
+const VETOR_EMAIL_EXPOSTO      = 'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N';
+
 function getImpacto(p)  { return PORTOS_INFO[String(p)]?.impacto || 3; }
 function getDesc(p)     { return PORTOS_INFO[String(p)]?.desc || 'Porto aberto.'; }
-
 
 function getCVE(p, v = '') {
   const versao = String(v).trim();
@@ -35,6 +41,12 @@ function getCVE(p, v = '') {
     entry => entry.porto === String(p) && entry.padrao.test(versao)
   );
   return match ? match.cve : null;
+}
+
+
+function getVetorCVSS(porto, cveCode) {
+  if (cveCode && VETORES_CVE[cveCode]) return VETORES_CVE[cveCode];
+  return VETORES_PORTA[String(porto)] || VETOR_PORTA_GENERICO;
 }
 
 // ── WHOIS ─────────────────────────────────────────────────────────────────────
@@ -88,7 +100,8 @@ async function executarNmap(host, mode, emitir, adicionarFinding) {
         `Porto ${p.porto}/tcp aberto - ${p.servico}`,
         `${p.servico} ${p.versao} no porto ${p.porto}. ${getDesc(p.porto)}`,
         'nmap', 1, getImpacto(p.porto), 8,
-        `Verificar necessidade do servico.`, null, true
+        `Verificar necessidade do servico.`, null, true,
+        getVetorCVSS(p.porto, null)
       );
     });
     return;
@@ -127,7 +140,8 @@ async function executarNmap(host, mode, emitir, adicionarFinding) {
         'nmap', 1, getImpacto(porto), 9,
         `Verificar se ${servico} e necessario. Fechar portos desnecessarios.`,
         cve,
-        false
+        false,
+        getVetorCVSS(porto, cve)
       );
     }
   }, timeout);
@@ -156,6 +170,10 @@ async function executarHarvester(host, emitir, adicionarFinding) {
     return;
   }
   emitir('[HARVESTER] a recolher emails e dados publicos...', 'info', 1);
+
+
+  let seccaoAtual = null;
+
   await executarComandoSeguro('theHarvester', ['-d', host, '-b', 'crtsh', '-l', '20'],
     l => {
       const li = l.trim();
@@ -173,7 +191,8 @@ async function executarHarvester(host, emitir, adicionarFinding) {
           `Subdominio exposto (Certificate Transparency): ${li}`,
           `Host encontrado via logs publicos de certificados (crt.sh), associado a ${host}.`,
           'theHarvester', 1, 3, 7,
-          'Confirmar se o subdominio e necessario e esta devidamente protegido.', null, false
+          'Confirmar se o subdominio e necessario e esta devidamente protegido.', null, false,
+          VETOR_SUBDOMINIO_EXPOSTO
         );
         return;
       }
@@ -183,7 +202,8 @@ async function executarHarvester(host, emitir, adicionarFinding) {
         adicionarFinding(
           `Email exposto: ${li}`, 'Email encontrado via OSINT (Certificate Transparency).',
           'theHarvester', 1, 4, 8,
-          'Remover emails corporativos de publicacoes publicas.', null, false
+          'Remover emails corporativos de publicacoes publicas.', null, false,
+          VETOR_EMAIL_EXPOSTO
         );
       }
     }, 25000);

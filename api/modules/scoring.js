@@ -1,35 +1,70 @@
 // Motor de scoring de vulnerabilidades BritofScan
-// Fórmula: score = (impact × 0.6) + (confidence × 0.4)
+//
 
+const {
+  calcularCVSS,
+  classificarCVSS,
+} = require('./scoring');
+
+// Mantido para compatibilidade com o frontend (cores/emojis dos badges de
+// severidade) e com o gerador de relatorios, que ja esperam estas 5
+// categorias e a chave INFO especificamente (nao NONE).
 const SEVERIDADE = {
-  CRITICAL: { min: 8.0, cor: '#ff3b30', emoji: '🔴' },
-  HIGH:     { min: 6.0, cor: '#ff9500', emoji: '🟠' },
+  CRITICAL: { min: 9.0, cor: '#ff3b30', emoji: '🔴' },
+  HIGH:     { min: 7.0, cor: '#ff9500', emoji: '🟠' },
   MEDIUM:   { min: 4.0, cor: '#ffcc00', emoji: '🟡' },
-  LOW:      { min: 2.0, cor: '#34c759', emoji: '🟢' },
+  LOW:      { min: 0.1, cor: '#34c759', emoji: '🟢' },
   INFO:     { min: 0.0, cor: '#5ac8fa', emoji: '🔵' },
 };
 
 /**
  * Calcula o score de uma vulnerabilidade.
- * @param {number} impact     - Impacto potencial (0-10)
- * @param {number} confidence - Confiança na deteção (0-10)
+ *
+ * Uso preferencial (novo): passar um vetor CVSS v3.1 como primeiro
+ * argumento, ex: calcularScore('AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H').
+ *
+ * Uso legado (fallback, DEPRECATED): passar impact e confidence como
+ * numeros 0-10, ex: calcularScore(8, 9). Mantido apenas para findings
+ * cujo ponto de chamada ainda nao foi migrado para um vetor CVSS real -
+ * nao deve ser usado em novo codigo.
+ *
+ * @param {number|string} impactOuVetor - vetor CVSS (string) ou impact (number)
+ * @param {number} [confidence] - so usado no modo legado
  * @returns {number} score entre 0 e 10
  */
-function calcularScore(impact, confidence) {
+function calcularScore(impactOuVetor, confidence) {
+  if (typeof impactOuVetor === 'string' && impactOuVetor.includes('AV:')) {
+    return calcularCVSS(impactOuVetor).score;
+  }
+  // Modo legado (deprecated) - heuristica pre-CVSS, mantida so como rede
+  // de seguranca para findings sem vetor atribuido.
+  const impact = impactOuVetor;
   return Math.round(((impact * 0.6) + (confidence * 0.4)) * 10) / 10;
 }
 
 /**
- * Classifica a severidade com base no score.
+ * Classifica a severidade com base no score, usando os limiares oficiais
+ * CVSS v3.1 (Critical >=9.0, High >=7.0, Medium >=4.0, Low >0, None =0).
+ * O valor NONE do CVSS e traduzido para INFO, por compatibilidade com o
+ * resto da plataforma (frontend e gerador de relatorios).
  * @param {number} score
  * @returns {string} CRITICAL | HIGH | MEDIUM | LOW | INFO
  */
 function classificarSeveridade(score) {
-  if (score >= 8.0) return 'CRITICAL';
-  if (score >= 6.0) return 'HIGH';
-  if (score >= 4.0) return 'MEDIUM';
-  if (score >= 2.0) return 'LOW';
-  return 'INFO';
+  const sev = classificarCVSS(score);
+  return sev === 'NONE' ? 'INFO' : sev;
+}
+
+/**
+ * Calcula o score e a severidade de um finding a partir de um vetor CVSS,
+ * devolvendo tambem o proprio vetor para ser guardado no finding (para
+ * auditoria/transparencia do calculo).
+ * @param {string} vetor - vetor CVSS v3.1
+ * @returns {{ score: number, severidade: string, vetorCVSS: string }}
+ */
+function calcularScoreCVSS(vetor) {
+  const { score } = calcularCVSS(vetor);
+  return { score, severidade: classificarSeveridade(score), vetorCVSS: vetor };
 }
 
 /**
@@ -48,11 +83,14 @@ function analisarFindings(findings) {
     return true;
   });
 
-  // Calcular score para cada finding
+  // Calcular score para cada finding. Prioriza um score ja calculado
+  // (via vetor CVSS, atribuido em adicionarFinding); só recorre ao modo
+  // legado (impact/confidence) como rede de seguranca para findings sem
+  // vetor CVSS atribuido.
   const comScore = unicos.map(f => ({
     ...f,
-    score: f.score || calcularScore(f.impact || 5, f.confidence || 5),
-    severidade: f.severidade || classificarSeveridade(f.score || calcularScore(f.impact || 5, f.confidence || 5)),
+    score: f.score ?? calcularScore(f.impact ?? 5, f.confidence ?? 5),
+    severidade: f.severidade || classificarSeveridade(f.score ?? calcularScore(f.impact ?? 5, f.confidence ?? 5)),
   }));
 
   // Ordenar por score descendente
@@ -86,6 +124,12 @@ function analisarFindings(findings) {
 /**
  * Deteta padrões de correlação entre findings.
  * Retorna riscos compostos de alta severidade.
+ *
+ * NOTA: os scores das correlações mantêm-se como valores fixos atribuídos
+ * por padrão (não recalculados via CVSS), uma vez que representam um
+ * julgamento de risco composto sobre a COMBINAÇÃO de vulnerabilidades, não
+ * uma vulnerabilidade individual passível de um único vetor CVSS. Esta
+ * distinção é documentada explicitamente no relatório.
  */
 function detectarCorrelacoes(findings) {
   const titulos = findings.map(f => f.titulo?.toLowerCase() || '');
@@ -180,4 +224,8 @@ function detectarCorrelacoes(findings) {
   return correlacoes.sort((a, b) => b.score - a.score);
 }
 
-module.exports = { calcularScore, classificarSeveridade, analisarFindings, SEVERIDADE };
+module.exports = {
+  calcularScore, classificarSeveridade, analisarFindings, SEVERIDADE,
+  calcularScoreCVSS,
+};
+

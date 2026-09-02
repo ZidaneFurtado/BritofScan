@@ -26,20 +26,49 @@ function ferramentaInstalada(nome) {
   });
 }
 
-// Executa comando com duplo guard de timeout
+// Executa comando com duplo guard de timeout, terminacao de arvore de
+// processos, e limite de output em memoria.
+//
+// LIMITACAO DECLARADA: esta funcao reduz o risco de injecao de comandos
+// (spawn com shell:false, sem interpretacao de shell) e limita o impacto
+// de processos descontrolados (timeout, limite de output, terminacao de
+// toda a arvore de processos). NAO fornece isolamento ao nivel do sistema
+// operativo (namespaces, cgroups, utilizador sem privilegios dedicado).
+// A plataforma deve ser considerada, nesta versao, uma solucao de ambito
+// estritamente local e laboratorial, nao adequada a implantacao multi-
+// utilizador em producao ou exposta publicamente sem isolamento adicional
+// (ex.: execucao em container dedicado por scan, com limites de recursos
+// impostos pelo sistema operativo/orquestrador de containers).
 function executarComandoSeguro(cmd, args = [], onLinha = () => {}, timeout = 15000) {
+  const MAX_OUTPUT_BYTES = 5 * 1024 * 1024; // 5MB - limite de output por comando
+
   return new Promise(resolve => {
     let done = false;
+    let outputBytes = 0;
     const finish = () => { if (!done) { done = true; resolve(); } };
 
+ 
+    const matarArvore = (p) => {
+      if (!p || p.killed) return;
+      try {
+        // process.group negativo mata todo o grupo de processos (Linux/macOS)
+        process.kill(-p.pid, 'SIGKILL');
+      } catch (_) {
+        try { p.kill('SIGKILL'); } catch (__) {}
+      }
+    };
+
     const guard = setTimeout(() => {
-      try { if (proc && !proc.killed) proc.kill('SIGKILL'); } catch (_) {}
+      matarArvore(proc);
       finish();
     }, timeout + 500);
 
     let proc;
     try {
-      proc = spawn(cmd, args, { shell: false });
+      proc = spawn(cmd, args, {
+        shell: false,
+        detached: true, // cria novo grupo de processos, para poder matar a arvore toda
+      });
     } catch (err) {
       clearTimeout(guard);
       finish();
@@ -47,16 +76,27 @@ function executarComandoSeguro(cmd, args = [], onLinha = () => {}, timeout = 150
     }
 
     const timer = setTimeout(() => {
-      try { if (proc && !proc.killed) proc.kill('SIGKILL'); } catch (_) {}
+      matarArvore(proc);
       finish();
     }, timeout);
 
-    const processar = data =>
+    const processar = data => {
+      outputBytes += data.length;
+      if (outputBytes > MAX_OUTPUT_BYTES) {
+        // Limite de output excedido - termina o processo imediatamente
+        // em vez de continuar a acumular dados indefinidamente em memoria.
+        clearTimeout(timer);
+        clearTimeout(guard);
+        matarArvore(proc);
+        finish();
+        return;
+      }
       data.toString()
         .split(/\r?\n/)
         .map(l => l.replace(/\x1B\[[0-9;]*[mGKHF]/g, '').trim()) // remove ANSI
         .filter(Boolean)
         .forEach(l => { try { onLinha(l); } catch (_) {} });
+    };
 
     proc.stdout.on('data', processar);
     proc.stderr.on('data', processar);

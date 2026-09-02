@@ -28,16 +28,28 @@ async function executarScan(target, mode = 'standard', uid, io) {
     if (io) io.emit(`scan:phase:${uid}`, { phase: fase, state: estado });
   };
 
-  // Separa findings reais de simulados
-  const adicionarFinding = (titulo, descricao, ferramenta, fase, impact, confidence, remediacao = '', cve = null, simulado = false) => {
+  // Separa findings reais de simulados.
+  // CORRIGIDO: aceita agora um 10º parametro opcional (vetorCVSS). Quando
+  // fornecido, o score e calculado a partir da norma CVSS v3.1 real
+  // (calcularScore reconhece automaticamente um vetor CVSS vs. o par
+  // impact/confidence legado) - ver scoringCVSS.js. Quando omitido,
+  // mantem o comportamento legado, necessario para modulos ainda nao
+  // migrados para CVSS.
+  const adicionarFinding = (
+    titulo, descricao, ferramenta, fase, impact, confidence,
+    remediacao = '', cve = null, simulado = false, vetorCVSS = null
+  ) => {
     if (!titulo || !descricao) return;
-    const score = calcularScore(impact, confidence);
+    const score = vetorCVSS
+      ? calcularScore(vetorCVSS)           // modo CVSS v3.1 (preferencial)
+      : calcularScore(impact, confidence); // modo legado (fallback, deprecated)
     findings.push({
       titulo, descricao, ferramenta, fase,
       impact, confidence, score,
       severidade: classificarSeveridade(score),
       remediacao, cve,
       simulado, // marca claramente se é dado real ou simulado
+      vetorCVSS, // guardado para auditoria/transparencia do calculo no relatorio
     });
   };
 

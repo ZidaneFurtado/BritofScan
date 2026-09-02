@@ -1,5 +1,7 @@
 // fase3_vuln.js - Analise de Vulnerabilidades
 const { executarComandoSeguro } = require('./utils');
+const { VETORES_HEADER, VETORES_COOKIE, VETORES_METODO } = require('./scoring');
+const VETOR_INFORMATIVO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
 
 // ── SECURITY_HEADERS ──────────────────────────────────────────────────────────
 const SECURITY_HEADERS = [
@@ -47,10 +49,14 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
     SECURITY_HEADERS.forEach(h => {
       if (!headersObj[h.nome]) {
         emitir(`[HEADERS] em falta: ${h.titulo}`, 'warning', 3);
+        const vetor = h.titulo === 'X-XSS-Protection'
+          ? VETOR_INFORMATIVO
+          : (VETORES_HEADER[h.titulo] || VETOR_INFORMATIVO);
         adicionarFinding(
           `Header em falta: ${h.titulo}`,
           `Header '${h.nome}' ausente.`,
-          'header-audit', 3, h.impacto, 9, h.rem, null, false
+          'header-audit', 3, h.impacto, 9, h.rem, null, false,
+          vetor
         );
       } else {
         emitir(`[HEADERS] presente: ${h.titulo}`, 'success', 3);
@@ -74,23 +80,23 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
       if (!cl.includes('httponly'))
         adicionarFinding(`Cookie sem HttpOnly: ${nome}`,
           `${nome} vulneravel a roubo via XSS.`,
-          'cookie-audit', 3, 5, 8, 'Adicionar flag HttpOnly.', null, false);
+          'cookie-audit', 3, 5, 8, 'Adicionar flag HttpOnly.', null, false,
+          VETORES_COOKIE.httponly);
       if (!cl.includes('secure') && targetUrl.startsWith('https'))
         adicionarFinding(`Cookie sem Secure: ${nome}`,
           `${nome} pode ser enviado via HTTP.`,
-          'cookie-audit', 3, 4, 8, 'Adicionar flag Secure.', null, false);
+          'cookie-audit', 3, 4, 8, 'Adicionar flag Secure.', null, false,
+          VETORES_COOKIE.secure);
       if (!cl.includes('samesite'))
         adicionarFinding(`Cookie sem SameSite: ${nome}`,
           `${nome} vulneravel a CSRF.`,
-          'cookie-audit', 3, 4, 8, 'Adicionar SameSite=Strict.', null, false);
+          'cookie-audit', 3, 4, 8, 'Adicionar SameSite=Strict.', null, false,
+          VETORES_COOKIE.samesite);
     });
   }
 
   // ── METODOS HTTP ──────────────────────────────────────────────────────────────
-  // Usar curl — httpMethod Node.js falha com IIS/AWS
-  // Bloqueados: 405 Not Allowed, 501 Not Implemented, 411 Length Required,
-  //             403 Forbidden — servidor recusou mas metodo nao esta activo
-  progresso('Metodos HTTP', 3, 4, '#ffcc00');
+
   emitir('[METODOS] a verificar metodos HTTP perigosos...', 'info', 3);
   const metodosTemp = [];
 
@@ -108,16 +114,15 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
     if (status && ![0, 403, 405, 501, 411].includes(status)) {
       emitir(`[METODOS] ${metodo} aceite (HTTP ${status})`, 'warning', 3);
       if (metodo === 'TRACE')
-        metodosTemp.push({ t: 'TRACE ativo', d: 'Risco de Cross-Site Tracing (XST).', r: 'Desativar TRACE no servidor.', i: 6 });
+        metodosTemp.push({ t: 'TRACE ativo', d: 'Risco de Cross-Site Tracing (XST).', r: 'Desativar TRACE no servidor.', i: 6, vetor: VETORES_METODO.TRACE });
       else if (['PUT', 'DELETE'].includes(metodo))
-        metodosTemp.push({ t: `Metodo ${metodo} disponivel`, d: `${metodo} acessivel sem autenticacao.`, r: `Restringir ${metodo}.`, i: 7 });
-    } else {
+        metodosTemp.push({ t: `Metodo ${metodo} disponivel`, d: `${metodo} acessivel sem autenticacao.`, r: `Restringir ${metodo}.`, i: 7, vetor: VETORES_METODO[metodo] });
       emitir(`[METODOS] ${metodo} bloqueado`, 'success', 3);
     }
   }
 
   metodosTemp.forEach(f =>
-    adicionarFinding(f.t, f.d, 'http-methods', 3, f.i, 7, f.r, null, false));
+    adicionarFinding(f.t, f.d, 'http-methods', 3, f.i, 7, f.r, null, false, f.vetor));
 
   // ── CVE ───────────────────────────────────────────────────────────────────────
   progresso('Correlacao CVE', 4, 4, '#ffcc00');
