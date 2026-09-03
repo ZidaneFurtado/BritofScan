@@ -1,7 +1,7 @@
 // Motor de scoring de vulnerabilidades BritofScan
 //
 
-const scoringCVSS = require('./scoring');
+const scoringCVSS = require('./scoringCVSS');
 
 // Mantido para compatibilidade com o frontend (cores/emojis dos badges de
 // severidade) e com o gerador de relatorios, que ja esperam estas 5
@@ -31,7 +31,7 @@ const SEVERIDADE = {
  */
 function calcularScore(impactOuVetor, confidence) {
   if (typeof impactOuVetor === 'string' && impactOuVetor.includes('AV:')) {
-    return calcularCVSS(impactOuVetor).score;
+    return scoringCVSS.calcularCVSS(impactOuVetor).score;
   }
   // Modo legado (deprecated) - heuristica pre-CVSS, mantida so como rede
   // de seguranca para findings sem vetor atribuido.
@@ -48,7 +48,7 @@ function calcularScore(impactOuVetor, confidence) {
  * @returns {string} CRITICAL | HIGH | MEDIUM | LOW | INFO
  */
 function classificarSeveridade(score) {
-  const sev = classificarCVSS(score);
+  const sev = scoringCVSS.classificarCVSS(score);
   return sev === 'NONE' ? 'INFO' : sev;
 }
 
@@ -60,7 +60,7 @@ function classificarSeveridade(score) {
  * @returns {{ score: number, severidade: string, vetorCVSS: string }}
  */
 function calcularScoreCVSS(vetor) {
-  const { score } = calcularCVSS(vetor);
+  const { score } = scoringCVSS.calcularCVSS(vetor);
   return { score, severidade: classificarSeveridade(score), vetorCVSS: vetor };
 }
 
@@ -225,4 +225,3 @@ module.exports = {
   calcularScore, classificarSeveridade, analisarFindings, SEVERIDADE,
   calcularScoreCVSS,
 };
-

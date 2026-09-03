@@ -23,11 +23,7 @@ const CVES_POR_VERSAO = [
   { porto: '3306', padrao: /mysql\s*5\.5\.[0-9]+/i,     cve: 'CVE-2016-6663' },
   { porto: '22',   padrao: /openssh\s*7\.4/i,           cve: 'CVE-2018-15473' },
 ];
-
-
 const VETOR_PORTA_GENERICO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
-
-
 const VETOR_SUBDOMINIO_EXPOSTO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N';
 const VETOR_EMAIL_EXPOSTO      = 'AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N';
 
@@ -42,7 +38,6 @@ function getCVE(p, v = '') {
   );
   return match ? match.cve : null;
 }
-
 
 function getVetorCVSS(porto, cveCode) {
   if (cveCode && VETORES_CVE[cveCode]) return VETORES_CVE[cveCode];
@@ -171,7 +166,9 @@ async function executarHarvester(host, emitir, adicionarFinding) {
   }
   emitir('[HARVESTER] a recolher emails e dados publicos...', 'info', 1);
 
-
+  // CORRIGIDO: variavel em falta (bug identificado durante a revisao) -
+  // sem esta declaracao, seccaoAtual tornava-se uma variavel global
+  // implicita, partilhada entre execucoes concorrentes de scans distintos.
   let seccaoAtual = null;
 
   await executarComandoSeguro('theHarvester', ['-d', host, '-b', 'crtsh', '-l', '20'],

@@ -49,6 +49,9 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
     SECURITY_HEADERS.forEach(h => {
       if (!headersObj[h.nome]) {
         emitir(`[HEADERS] em falta: ${h.titulo}`, 'warning', 3);
+        // X-XSS-Protection usa vetor informativo (score 0) - descontinuado,
+        // sem risco real associado. Os restantes usam o vetor CVSS real
+        // do mapa central (scoringCVSS.js).
         const vetor = h.titulo === 'X-XSS-Protection'
           ? VETOR_INFORMATIVO
           : (VETORES_HEADER[h.titulo] || VETOR_INFORMATIVO);
@@ -96,7 +99,10 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
   }
 
   // ── METODOS HTTP ──────────────────────────────────────────────────────────────
-
+  // Usar curl — httpMethod Node.js falha com IIS/AWS
+  // Bloqueados: 405 Not Allowed, 501 Not Implemented, 411 Length Required,
+  //             403 Forbidden — servidor recusou mas metodo nao esta activo
+  progresso('Metodos HTTP', 3, 4, '#ffcc00');
   emitir('[METODOS] a verificar metodos HTTP perigosos...', 'info', 3);
   const metodosTemp = [];
 
@@ -117,6 +123,7 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
         metodosTemp.push({ t: 'TRACE ativo', d: 'Risco de Cross-Site Tracing (XST).', r: 'Desativar TRACE no servidor.', i: 6, vetor: VETORES_METODO.TRACE });
       else if (['PUT', 'DELETE'].includes(metodo))
         metodosTemp.push({ t: `Metodo ${metodo} disponivel`, d: `${metodo} acessivel sem autenticacao.`, r: `Restringir ${metodo}.`, i: 7, vetor: VETORES_METODO[metodo] });
+    } else {
       emitir(`[METODOS] ${metodo} bloqueado`, 'success', 3);
     }
   }

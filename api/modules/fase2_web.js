@@ -1,5 +1,12 @@
 // fase2_web.js - Analise Web
 const { ferramentaInstalada, executarComandoSeguro, httpGet } = require('./utils');
+const {
+  VETORES_FICHEIRO, VETOR_WAF_AUSENTE, VETOR_HTTPS_NAO_FORCADO,
+  VETOR_TLS_DESATUALIZADO, VETOR_NIKTO_GENERICO, VETORES_NUCLEI_BANDA,
+} = require('./scoring');
+
+const VETOR_INFORMATIVO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
+const VETOR_CERT_EXPIRANDO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L';
 
 // ── WAF_ASSINATURAS ───────────────────────────────────────────────────────────
 const WAF_ASSINATURAS = {
@@ -57,12 +64,14 @@ async function detectarWAF(targetUrl, emitir, adicionarFinding) {
   if (wafFound) {
     emitir(`[WAF] detetado: ${wafFound}`, 'success', 2);
     adicionarFinding(`WAF ${wafFound} ativo`, `WAF ${wafFound} protege a aplicacao.`,
-      'waf-detect', 2, 1, 9, 'Manter WAF atualizado e regras activas.', null, false);
+      'waf-detect', 2, 1, 9, 'Manter WAF atualizado e regras activas.', null, false,
+      VETOR_INFORMATIVO);
   } else {
     emitir('[WAF] sem WAF detetado', 'warning', 2);
     if (resNormal.status > 0)
       adicionarFinding('Sem WAF detetado', 'Nenhum WAF identificado — aplicacao exposta sem protecao.',
-        'waf-detect', 2, 5, 7, 'Implementar WAF (Cloudflare, ModSecurity, AWS Shield).', null, false);
+        'waf-detect', 2, 5, 7, 'Implementar WAF (Cloudflare, ModSecurity, AWS Shield).', null, false,
+        VETOR_WAF_AUSENTE);
   }
 }
 
@@ -87,11 +96,13 @@ async function analisarSSL(host, emitir, adicionarFinding) {
           emitir(`[SSL] Expira em: ${dias} dias`, dias < 30 ? 'warning' : 'output', 2);
           if (dias < 30)
             adicionarFinding('Certificado SSL a expirar', `Expira em ${dias} dias.`,
-              'ssl-check', 2, 6, 9, 'Renovar certificado SSL.', null, false);
+              'ssl-check', 2, 6, 9, 'Renovar certificado SSL.', null, false,
+              VETOR_CERT_EXPIRANDO);
         }
         if (['TLSv1', 'TLSv1.1'].includes(proto))
           adicionarFinding(`SSL desatualizado: ${proto}`, `${proto} e inseguro.`,
-            'ssl-check', 2, 6, 9, 'Usar TLS 1.2 ou superior.', null, false);
+            'ssl-check', 2, 6, 9, 'Usar TLS 1.2 ou superior.', null, false,
+            VETOR_TLS_DESATUALIZADO);
       } catch (e) {
         emitir(`[SSL] erro a ler certificado: ${e.message}`, 'warning', 2);
       }
@@ -127,7 +138,8 @@ async function executarNikto(targetUrl, emitir, adicionarFinding) {
           emitir(`[NIKTO] ${clean}`, 'output', 2);
           adicionarFinding(
             `Nikto: ${clean.substring(0, 100)}`, clean,
-            'nikto', 2, 5, 7, 'Aplicar correcoes indicadas.', null, false
+            'nikto', 2, 5, 7, 'Aplicar correcoes indicadas.', null, false,
+            VETOR_NIKTO_GENERICO
           );
         }
       }
@@ -144,15 +156,16 @@ async function executarNuclei(targetUrl, emitir, adicionarFinding) {
   await executarComandoSeguro('nuclei',
     ['-u', targetUrl, '-severity', 'medium,high,critical', '-silent', '-rate-limit', '5', '-timeout', '5'],
     l => {
-  
       const m = l.match(/\[([^\]]+)\]\s+\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.*)/);
       if (m) {
         const [, templateId, , severidade, alvo] = m;
         const sev = severidade.toUpperCase();
         emitir(`[NUCLEI] [${sev}] ${alvo}`, 'output', 2);
+        const vetorAproximado = VETORES_NUCLEI_BANDA[sev] || VETORES_NUCLEI_BANDA.MEDIUM;
         adicionarFinding(`Nuclei: ${templateId}`, alvo, 'nuclei', 2,
           sev === 'CRITICAL' ? 9 : sev === 'HIGH' ? 7 : 5, 9,
-          'Aplicar remediacao do template.', null, false);
+          'Aplicar remediacao do template.', null, false,
+          vetorAproximado);
       }
     }, 60000);
 }
@@ -174,7 +187,8 @@ async function executarFase2(targetUrl, host, mode, emitir, progresso, adicionar
   } else {
     emitir('[SSL] site nao usa HTTPS', 'warning', 2);
     adicionarFinding('HTTPS nao forcado', 'Aplicacao acessivel via HTTP nao seguro.',
-      'ssl-check', 2, 7, 10, 'Forcar HTTPS e ativar HSTS.', null, false);
+      'ssl-check', 2, 7, 10, 'Forcar HTTPS e ativar HSTS.', null, false,
+      VETOR_HTTPS_NAO_FORCADO);
   }
 
   // Pausa apos SSL antes dos ficheiros
@@ -205,6 +219,7 @@ async function executarFase2(targetUrl, host, mode, emitir, progresso, adicionar
         descricao:  alvo.desc, ferramenta: 'file-scanner', fase: 2,
         impact:     alvo.impacto, confidence: 9,
         remediacao: `Bloquear acesso a ${alvo.path}.`, cve: null, simulado: false,
+        vetorCVSS:  VETORES_FICHEIRO[alvo.path] || null,
       });
     } else if (status > 0) {
       emitir(`[FICHEIROS] ${alvo.path} -> ${status}`, 'output', 2);
@@ -216,7 +231,8 @@ async function executarFase2(targetUrl, host, mode, emitir, progresso, adicionar
 
   findingsTemp.forEach(f => adicionarFinding(
     f.titulo, f.descricao, f.ferramenta, f.fase,
-    f.impact, f.confidence, f.remediacao, f.cve, f.simulado
+    f.impact, f.confidence, f.remediacao, f.cve, f.simulado,
+    f.vetorCVSS
   ));
 
   progresso('Nikto', 4, 5, '#ff9500');
