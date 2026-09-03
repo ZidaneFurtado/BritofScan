@@ -1,10 +1,7 @@
 // Motor de scoring de vulnerabilidades BritofScan
 //
 
-const {
-  calcularCVSS,
-  classificarCVSS,
-} = require('./scoring');
+const scoringCVSS = require('./scoring');
 
 // Mantido para compatibilidade com o frontend (cores/emojis dos badges de
 // severidade) e com o gerador de relatorios, que ja esperam estas 5
