@@ -1,6 +1,6 @@
 // fase3_vuln.js - Analise de Vulnerabilidades
 const { executarComandoSeguro } = require('./utils');
-const { VETORES_HEADER, VETORES_COOKIE, VETORES_METODO } = require('./scoring');
+const { VETORES_HEADER, VETORES_COOKIE, VETORES_METODO } = require('./scoringCVSS');
 const VETOR_INFORMATIVO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
 
 // ── SECURITY_HEADERS ──────────────────────────────────────────────────────────
