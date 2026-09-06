@@ -1,9 +1,6 @@
 // reportGenerator.js - Geracao de relatorios em JSON, Markdown e HTML
 const { SEVERIDADE } = require('./scoring');
 
-/**
-
- */
 function escapeHtml(valor) {
   if (valor === null || valor === undefined) return '';
   return String(valor)
@@ -12,6 +9,28 @@ function escapeHtml(valor) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+const FERRAMENTAS_OBSERVACAO_DIRETA = [
+  'header-audit', 'cookie-audit', 'http-methods', 'waf-detect', 'ssl-check', 'file-scanner',
+];
+
+/**
+ * @param {Object} finding
+ * @returns {string}
+ */
+function classificarOrigemScore(finding) {
+  if (!finding.vetorCVSS) return 'heuristica-legado';
+  if (finding.ferramenta === 'nmap') {
+    return finding.cve ? 'confirmado' : 'estimado';
+  }
+  if (['nikto', 'nuclei'].includes(finding.ferramenta)) {
+    return 'estimado';
+  }
+  if (FERRAMENTAS_OBSERVACAO_DIRETA.includes(finding.ferramenta)) {
+    return 'confirmado';
+  }
+  return 'estimado'; // por defeito, conservador
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -46,11 +65,14 @@ function gerarJSON(scan) {
     correlacoes: (scan.correlacoes || []).map(c => ({
       titulo: c.titulo, score: c.score, severidade: c.severidade,
       descricao: c.descricao, remediacao: c.remediacao,
+      tipoScore: 'heuristica-correlacao', // NUNCA um vetor CVSS - julgamento fixo sobre combinação de findings
     })),
     findings: (scan.findings || []).map(f => ({
       titulo: f.titulo, severidade: f.severidade, score: f.score,
       fase: f.fase, ferramenta: f.ferramenta, descricao: f.descricao,
       remediacao: f.remediacao, cve: f.cve || null,
+      vetorCVSS: f.vetorCVSS || null,
+      tipoScore: classificarOrigemScore(f),
     })),
   };
 
@@ -66,9 +88,11 @@ function gerarMarkdown(scan) {
   const { meta, resumo, correlacoes, findings } = extrairDados(scan);
   const data = new Date(meta.inicio).toLocaleString('pt-PT');
 
-  let md = `# 🔍 BritofScan — Relatório de Penetration Testing\n\n`;
-  md += `> **Alvo:** \`${meta.alvo}\` | **Modo:** ${meta.modo} | **Data:** ${data}\n\n`;
-  md += `---\n\n## 📊 Resumo Executivo\n\n`;
+  let md = `# BritofScan — Relatório de Penetration Testing\n\n`;
+  // CORRIGIDO: meta.alvo e meta.modo agora escapados também no Markdown
+  // (lacuna identificada — só estavam escapados na versão HTML).
+  md += `> **Alvo:** \`${escapeHtml(meta.alvo)}\` | **Modo:** ${escapeHtml(meta.modo)} | **Data:** ${escapeHtml(data)}\n\n`;
+  md += `---\n\n## Resumo Executivo\n\n`;
   md += `| Métrica | Valor |\n|---------|-------|\n`;
   md += `| Score Global de Risco | **${resumo.scoreGlobal}/10** |\n`;
   md += `| Total de Findings | ${resumo.total} |\n`;
@@ -78,13 +102,13 @@ function gerarMarkdown(scan) {
   md += `| 🟢 Baixos | ${resumo.baixos} |\n`;
   md += `| 🔵 Info | ${resumo.info} |\n\n`;
 
-
   if (correlacoes.length > 0) {
     md += `---\n\n## ⚡ Riscos Compostos (Correlações)\n\n`;
+    md += `> Nota: os scores desta secção são uma heurística de julgamento sobre a combinação de findings, não um cálculo CVSS individual.\n\n`;
     correlacoes.forEach(c => {
-      const emoji = SEVERIDADE[c.severidade]?.emoji || '⚪';
+      const emoji = SEVERIDADE[c.severidade]?.emoji || '';
       md += `### ${emoji} ${escapeHtml(c.titulo)} — Score: ${c.score}\n\n`;
-      md += `**Severidade:** ${c.severidade} | **Tipo:** Correlação Automática\n\n`;
+      md += `**Severidade:** ${c.severidade} | **Tipo:** Correlação Automática (heurística, sem vetor CVSS)\n\n`;
       md += `**Descrição:** ${escapeHtml(c.descricao)}\n\n`;
       md += `**Remediação:** ${escapeHtml(c.remediacao)}\n\n`;
     });
@@ -94,17 +118,19 @@ function gerarMarkdown(scan) {
   grupos.forEach(sev => {
     const grupo = findings.filter(f => f.severidade === sev);
     if (grupo.length === 0) return;
-    const emoji = SEVERIDADE[sev]?.emoji || '⚪';
+    const emoji = SEVERIDADE[sev]?.emoji || '';
     md += `---\n\n## ${emoji} Findings ${sev} (${grupo.length})\n\n`;
     grupo.forEach(f => {
       md += `### ${escapeHtml(f.titulo)}\n\n`;
       md += `| Campo | Valor |\n|-------|-------|\n`;
       md += `| Score | ${f.score} |\n`;
+      md += `| Origem do Score | ${classificarOrigemScore(f)} |\n`;
+      if (f.vetorCVSS) md += `| Vetor CVSS | \`${escapeHtml(f.vetorCVSS)}\` |\n`;
       md += `| Ferramenta | ${escapeHtml(f.ferramenta || 'N/A')} |\n`;
       md += `| Fase | ${f.fase || 'N/A'} |\n`;
       if (f.cve) md += `| CVE | ${escapeHtml(f.cve)} |\n`;
       md += `\n**Descrição:** ${escapeHtml(f.descricao || 'Sem descrição')}\n\n`;
-      if (f.remediacao) md += `**✅ Remediação:** ${escapeHtml(f.remediacao)}\n\n`;
+      if (f.remediacao) md += `**Remediação:** ${escapeHtml(f.remediacao)}\n\n`;
     });
   });
 
@@ -138,9 +164,11 @@ function gerarHTML(scan) {
           ${f.ferramenta ? `<span>🔧 ${escapeHtml(f.ferramenta)}</span>` : ''}
           ${f.fase ? `<span>📍 Fase ${escapeHtml(f.fase)}</span>` : ''}
           ${f.cve ? `<span>🔗 ${escapeHtml(f.cve)}</span>` : ''}
+          <span>📐 ${escapeHtml(classificarOrigemScore(f))}</span>
         </div>
+        ${f.vetorCVSS ? `<p class="finding-desc"><code>${escapeHtml(f.vetorCVSS)}</code></p>` : ''}
         ${f.descricao ? `<p class="finding-desc">${escapeHtml(f.descricao)}</p>` : ''}
-        ${f.remediacao ? `<div class="remediacao"><strong>✅ Remediação:</strong> ${escapeHtml(f.remediacao)}</div>` : ''}
+        ${f.remediacao ? `<div class="remediacao"><strong>Remediação:</strong> ${escapeHtml(f.remediacao)}</div>` : ''}
       </div>
     </div>`).join('');
 
@@ -151,7 +179,8 @@ function gerarHTML(scan) {
         ${badgeHTML(c.severidade, c.score)}
       </div>
       <p>${escapeHtml(c.descricao)}</p>
-      <div class="remediacao"><strong>✅ Remediação:</strong> ${escapeHtml(c.remediacao)}</div>
+      <p style="font-size:0.8rem;color:#94a3b8;">Heurística de correlação — sem vetor CVSS individual.</p>
+      <div class="remediacao"><strong>Remediação:</strong> ${escapeHtml(c.remediacao)}</div>
     </div>`).join('');
 
   const html = `<!DOCTYPE html>
@@ -178,7 +207,7 @@ function gerarHTML(scan) {
 </head>
 <body>
 <div class="container">
-  <h1>🔍 BritofScan — Relatório de Penetration Testing</h1>
+  <h1>BritofScan — Relatório de Penetration Testing</h1>
   <div class="meta">Alvo: <strong>${escapeHtml(meta.alvo)}</strong> | Modo: ${escapeHtml(meta.modo)} | Data: ${escapeHtml(data)}</div>
 
   <div class="metrics">
@@ -190,7 +219,7 @@ function gerarHTML(scan) {
 
   ${correlacoes.length > 0 ? `<h2>⚡ Riscos Compostos</h2>${correlacoesHTML}` : ''}
 
-  <h2>📋 Findings</h2>
+  <h2> Findings</h2>
   ${findingsHTML || '<p>Nenhum finding registado.</p>'}
 
   <p style="color:#64748b;font-size:0.8rem;margin-top:2rem;">Relatório gerado automaticamente pelo BritofScan v1.0.0</p>
@@ -220,4 +249,4 @@ function gerarRelatorio(scan, formato = 'json') {
   }
 }
 
-module.exports = { gerarRelatorio, escapeHtml };
+module.exports = { gerarRelatorio, escapeHtml, classificarOrigemScore };

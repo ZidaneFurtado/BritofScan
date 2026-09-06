@@ -5,10 +5,19 @@ const { executarFase1 } = require('./fase1_recon');
 const { executarFase2 } = require('./fase2_web');
 const { executarFase3 } = require('./fase3_vuln');
 
-async function executarScan(target, mode = 'standard', uid, io) {
+async function executarScan(target, mode = 'standard', uid, io, donoUid) {
   const inicio   = Date.now();
   const findings = [];
   const linhas   = [];
+
+  const emitirIO = (evento, payload) => {
+    if (!io) return;
+    if (donoUid) {
+      io.to(`user:${donoUid}`).emit(evento, payload);
+    } else {
+      console.warn('[SCANNER] donoUid não fornecido — evento não emitido de forma restrita.');
+    }
+  };
 
   const emitir = (texto, nivel = 'info', fase = 0) => {
     // Remove escape codes ANSI do output das ferramentas
@@ -16,25 +25,18 @@ async function executarScan(target, mode = 'standard', uid, io) {
     if (!limpo) return;
     const payload = { ts: new Date().toISOString(), text: limpo, level: nivel, phase: fase };
     linhas.push(payload);
-    if (io) io.emit(`scan:line:${uid}`, payload);
+    emitirIO(`scan:line:${uid}`, payload);
   };
 
   const progresso = (label, atual, total, cor = '#3b82f6') => {
     const pct = Math.round((atual / total) * 100);
-    if (io) io.emit(`scan:progress:${uid}`, { label, current: atual, total, pct, color: cor });
+    emitirIO(`scan:progress:${uid}`, { label, current: atual, total, pct, color: cor });
   };
 
   const faseEvento = (fase, estado) => {
-    if (io) io.emit(`scan:phase:${uid}`, { phase: fase, state: estado });
+    emitirIO(`scan:phase:${uid}`, { phase: fase, state: estado });
   };
 
-  // Separa findings reais de simulados.
-  // CORRIGIDO: aceita agora um 10º parametro opcional (vetorCVSS). Quando
-  // fornecido, o score e calculado a partir da norma CVSS v3.1 real
-  // (calcularScore reconhece automaticamente um vetor CVSS vs. o par
-  // impact/confidence legado) - ver scoringCVSS.js. Quando omitido,
-  // mantem o comportamento legado, necessario para modulos ainda nao
-  // migrados para CVSS.
   const adicionarFinding = (
     titulo, descricao, ferramenta, fase, impact, confidence,
     remediacao = '', cve = null, simulado = false, vetorCVSS = null
@@ -55,7 +57,7 @@ async function executarScan(target, mode = 'standard', uid, io) {
 
   let host;
   try {
-    host = validarAlvo(target);
+    host = await validarAlvo(target);
   } catch (e) {
     emitir(`ERRO: ${e.message}`, 'error', 0);
     throw e;
@@ -82,8 +84,7 @@ async function executarScan(target, mode = 'standard', uid, io) {
   // FASE 3
   faseEvento(3, 'running');
   await executarFase3(targetUrl, emitir, progresso, adicionarFinding);
-
-
+ 
   findings
     .filter(f => !f.simulado && f.fase === 1 && f.cve)
     .forEach(f => {
@@ -96,7 +97,7 @@ async function executarScan(target, mode = 'standard', uid, io) {
   // FASE 4 - Correlacao e scoring
   faseEvento(4, 'running');
   emitir(`[4/4] CORRELACAO E INTELIGENCIA`, 'phase', 4);
-  if (io) io.emit(`scan:progress:${uid}`, { label: 'Score e correlacoes', current: 1, total: 1, pct: 100, color: '#3b82f6' });
+  emitirIO(`scan:progress:${uid}`, { label: 'Score e correlacoes', current: 1, total: 1, pct: 100, color: '#3b82f6' });
 
   const analise = analisarFindings(findings);
 
@@ -124,13 +125,11 @@ async function executarScan(target, mode = 'standard', uid, io) {
 
   emitir(`SCAN CONCLUIDO - ${duracao}s | ${findingsReais.length} findings reais | Score: ${analise.resumo.scoreGlobal}/10`, 'success', 4);
 
-  if (io) {
-    io.emit(`scan:done:${uid}`, {
-      duration:      duracao,
-      totalFindings: findingsReais.length,
-      counts:        resumoFinal,
-    });
-  }
+  emitirIO(`scan:done:${uid}`, {
+    duration:      duracao,
+    totalFindings: findingsReais.length,
+    counts:        resumoFinal,
+  });
 
   // Retorna apenas findings reais no resultado principal
   return {
