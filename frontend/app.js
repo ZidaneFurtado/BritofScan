@@ -61,17 +61,17 @@ async function fazerLogin() {
   }
 }
 
+
 async function fazerRegisto() {
   const nome     = document.getElementById('reg-nome').value.trim();
   const email    = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
-  const role     = document.getElementById('reg-role').value;
   if (!nome || !email || !password) return mostrarErroAuth('Preenche todos os campos');
   try {
     const res  = await fetch(`${API}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: nome, nome, email, password, role }),
+      body: JSON.stringify({ name: nome, nome, email, password }),
     });
     const data = await res.json();
     if (!res.ok) return mostrarErroAuth(data.erro || data.error || 'Erro ao registar');
@@ -105,7 +105,7 @@ function iniciarApp() {
   document.getElementById('auth-overlay').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-nome').textContent       = utilizador?.name || utilizador?.nome || 'Utilizador';
-  document.getElementById('user-role-badge').textContent = utilizador?.role || 'estudante';
+  document.getElementById('user-role-badge').textContent = utilizador?.role || 'utilizador';
 
   // Só cria socket se não existir — evita perda de listeners por reconexão
   if (!socket || !socket.connected) {
@@ -455,11 +455,11 @@ function renderizarFerramentas() {
     fase1:[
       {nome:'whois',       desc:'Informações de registo de domínio'},
       {nome:'nmap',        desc:'Scan de portos e serviços (-sT -Pn)'},
-      {nome:'dnsrecon',    desc:'Enumeração DNS + tentativa AXFR'},
+      {nome:'dnsrecon',    desc:'Enumeração DNS'},
       {nome:'sublist3r',   desc:'Subdomínios passivos via OSINT'},
       {nome:'amass',       desc:'Enumeração passiva avançada'},
       {nome:'gobuster',    desc:'Brute force de subdomínios e dirs'},
-      {nome:'theHarvester',desc:'E-mails via Google/Bing'},
+      {nome:'theHarvester',desc:'Subdomínios e e-mails via Certificate Transparency (crtsh)'},
     ],
     fase2:[
       {nome:'waf-detect',  desc:'Deteção WAF (Cloudflare, Akamai...)'},

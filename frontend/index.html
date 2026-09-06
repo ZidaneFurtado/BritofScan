@@ -33,6 +33,15 @@
       </div>
       <button class="btn-primary" onclick="fazerLogin()">Entrar</button>
     </div>
+    <!--
+      CORRIGIDO (RBAC): removido o campo "Role" do formulário de registo.
+      O auto-registo está agora reservado exclusivamente ao papel sem
+      privilégios ("utilizador"), atribuído automaticamente pelo servidor
+      — o campo nunca foi lido do corpo do pedido em routes/auth.js. A
+      atribuição do papel de Administrador exige intervenção direta na
+      base de dados. Manter um dropdown de escolha aqui seria enganador,
+      já que a escolha do utilizador é sempre ignorada pelo servidor.
+    -->
     <div id="form-registo" class="auth-form">
       <div class="form-group">
         <label>Nome completo</label>
@@ -45,13 +54,6 @@
       <div class="form-group">
         <label>Password</label>
         <input type="password" id="reg-password" placeholder="Mínimo 8 caracteres">
-      </div>
-      <div class="form-group">
-        <label>Role</label>
-        <select id="reg-role">
-          <option value="estudante">Estudante</option>
-          <option value="professor">Professor</option>
-        </select>
       </div>
       <button class="btn-primary" onclick="fazerRegisto()">Criar Conta</button>
     </div>
