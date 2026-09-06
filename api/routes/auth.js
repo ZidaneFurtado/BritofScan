@@ -7,19 +7,29 @@ const { utilizadores } = require('../utils/localdb');
 const { verifyToken }  = require('../middleware/auth');
 const { authLimiter }  = require('../middleware/rateLimit');
 
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 16) {
+  console.error(
+    '[AUTH] ERRO FATAL: JWT_SECRET não está definido ou é demasiado curto (mínimo 16 caracteres).\n' +
+    '        Gere um valor forte com: openssl rand -hex 32\n' +
+    '        e defina-o na variável de ambiente JWT_SECRET antes de arrancar a aplicação.'
+  );
+  process.exit(1);
+}
+
 // ── Registo ───────────────────────────────────────────────────────────────────
+
 router.post('/register', authLimiter, async (req, res) => {
   try {
-    const { email, password, name, role = 'estudante' } = req.body;
+    const { email, password, name } = req.body;
+    const role = 'utilizador'; // fixo — nunca lido do corpo do pedido
 
     if (!email || !password || !name) {
       return res.status(400).json({ erro: 'Email, password e nome são obrigatórios' });
     }
     if (password.length < 8) {
       return res.status(400).json({ erro: 'Password deve ter pelo menos 8 caracteres' });
-    }
-    if (!['estudante', 'professor'].includes(role)) {
-      return res.status(400).json({ erro: 'Role inválida — usa: estudante, professor ou admin' });
     }
 
     if (utilizadores.porEmail(email)) {
@@ -31,7 +41,7 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const token = jwt.sign(
       { uid: utilizador.id, email, name, role },
-      process.env.JWT_SECRET || 'dev_secret',
+      JWT_SECRET,
       { expiresIn: '24h' },
     );
 
@@ -66,7 +76,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
     const token = jwt.sign(
       { uid: utilizador.id, email: utilizador.email, name: utilizador.name, role: utilizador.role },
-      process.env.JWT_SECRET || 'dev_secret',
+      JWT_SECRET,
       { expiresIn: '24h' },
     );
 

@@ -14,10 +14,11 @@ function setIO(ioInstance) { io = ioInstance; }
 // ── Iniciar scan ──────────────────────────────────────────────────────────────
 router.post('/start', verifyToken, scanLimiter, async (req, res) => {
   const { target, mode = 'standard', format = 'json' } = req.body;
-
+  
   if (!target) return res.status(400).json({ erro: 'Alvo (target) é obrigatório' });
-
-  try { validarAlvo(target); } catch (e) {
+  try {
+    await validarAlvo(target);
+  } catch (e) {
     return res.status(400).json({ erro: e.message });
   }
 
@@ -27,13 +28,15 @@ router.post('/start', verifyToken, scanLimiter, async (req, res) => {
   }
 
   const scanId = uuidv4();
+  const inicioISO = new Date().toISOString();
 
   scans.criar(scanId, {
     target, mode, format,
     estado:    'a_executar',
     userId:    req.user.uid,
     userName:  req.user.name,
-    criadoEm: new Date().toISOString(),
+    criadoEm:  inicioISO,
+    createdAt: inicioISO,
   });
 
   // Responde imediatamente com o scanId
@@ -46,7 +49,7 @@ router.post('/start', verifyToken, scanLimiter, async (req, res) => {
   //  CORRIGIDO: delay de 1.5s para o frontend registar os listeners WebSocket
   setTimeout(async () => {
     try {
-      const resultado = await executarScan(target, mode, scanId, io);
+      const resultado = await executarScan(target, mode, scanId, io, req.user.uid);
       scans.atualizar(scanId, {
         estado:      'concluido',
         findings:    resultado.findings,
@@ -54,6 +57,7 @@ router.post('/start', verifyToken, scanLimiter, async (req, res) => {
         summary:     resultado.resumo,
         topRiscos:   resultado.topRiscos,
         duration:    resultado.duration,
+        linhas:      resultado.linhas || [],
         concluidoEm: new Date().toISOString(),
       });
       console.log(`[SCAN]  Concluído: ${scanId} — ${resultado.findings?.length} findings em ${resultado.duration}s`);
@@ -67,7 +71,7 @@ router.post('/start', verifyToken, scanLimiter, async (req, res) => {
 // ── Histórico ─────────────────────────────────────────────────────────────────
 router.get('/history', verifyToken, async (req, res) => {
   try {
-    const filtro = req.user.role === 'estudante' ? { userId: req.user.uid } : {};
+    const filtro = req.user.role === 'utilizador' ? { userId: req.user.uid } : {};
     const lista  = scans.listar(filtro).map(s => ({
       id:          s.id,
       target:      s.target,
@@ -91,7 +95,7 @@ router.get('/:id', verifyToken, async (req, res) => {
   try {
     const scan = scans.porId(req.params.id);
     if (!scan) return res.status(404).json({ erro: 'Scan não encontrado' });
-    if (req.user.role === 'estudante' && scan.userId !== req.user.uid) {
+    if (req.user.role === 'utilizador' && scan.userId !== req.user.uid) {
       return res.status(403).json({ erro: 'Acesso negado' });
     }
     res.json(scan);
@@ -106,7 +110,7 @@ router.get('/:id/report', verifyToken, async (req, res) => {
     const formato = req.query.format || 'json';
     const scan    = scans.porId(req.params.id);
     if (!scan) return res.status(404).json({ erro: 'Scan não encontrado' });
-    if (req.user.role === 'estudante' && scan.userId !== req.user.uid) {
+    if (req.user.role === 'utilizador' && scan.userId !== req.user.uid) {
       return res.status(403).json({ erro: 'Acesso negado' });
     }
     const { conteudo, contentType, extensao } = gerarRelatorio(scan, formato);

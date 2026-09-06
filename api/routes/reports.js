@@ -6,9 +6,10 @@ const { verifyToken, requireAdmin } = require('../middleware/auth');
 const { scans }                 = require('../utils/localdb');
 
 // ── Listar relatórios (scans concluídos) ──────────────────────────────────────
+
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const filtro     = req.user.role === 'estudante' ? { userId: req.user.uid } : {};
+    const filtro     = req.user.role === 'utilizador' ? { userId: req.user.uid } : {};
     const relatorios = scans.listar(filtro)
       .filter(s => s.estado === 'concluido')
       .map(s => ({
@@ -31,7 +32,7 @@ router.get('/:id/export', verifyToken, async (req, res) => {
     }
     const scan = scans.porId(req.params.id);
     if (!scan) return res.status(404).json({ erro: 'Relatório não encontrado' });
-    if (req.user.role === 'estudante' && scan.userId !== req.user.uid) {
+    if (req.user.role === 'utilizador' && scan.userId !== req.user.uid) {
       return res.status(403).json({ erro: 'Acesso negado' });
     }
     const { conteudo, contentType, extensao } = gerarRelatorio(scan, formato);
@@ -45,7 +46,8 @@ router.get('/:id/export', verifyToken, async (req, res) => {
   }
 });
 
-// ── Eliminar (admin/professor) ────────────────────────────────────────────────
+// ── Eliminar (apenas Administrador) ───────────────────────────────────────────
+
 router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     if (!scans.porId(req.params.id)) {

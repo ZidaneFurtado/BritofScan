@@ -14,6 +14,15 @@ const SECURITY_HEADERS = [
   { nome: 'x-xss-protection',          titulo: 'X-XSS-Protection',   impacto: 4, rem: 'X-XSS-Protection: 1; mode=block' },
 ];
 
+// ── HTTP-METHODS: configuração ───────────────────────────────────────────────
+//    haver três categorias explícitas: aceite, bloqueado, inconclusivo.
+const TESTAR_METODOS_MODIFICADORES = false; // true APENAS em laboratório autorizado e descartável
+
+const METODOS_SEM_RISCO_ESCRITA = ['TRACE'];
+const METODOS_MODIFICADORES     = ['PUT', 'DELETE', 'PATCH'];
+const CODIGOS_BLOQUEADO         = [403, 405, 501];
+const CODIGOS_INCONCLUSIVOS     = [401, 404, 411, 500, 502, 503];
+
 async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
   emitir('[3/4] VULNERABILIDADES', 'phase', 3);
 
@@ -98,38 +107,85 @@ async function executarFase3(targetUrl, emitir, progresso, adicionarFinding) {
     });
   }
 
-  // ── METODOS HTTP ──────────────────────────────────────────────────────────────
-  // Usar curl — httpMethod Node.js falha com IIS/AWS
-  // Bloqueados: 405 Not Allowed, 501 Not Implemented, 411 Length Required,
-  //             403 Forbidden — servidor recusou mas metodo nao esta activo
+  // ── METODOS HTTP (corrigido) ───────────────────────────────────────────────────
   progresso('Metodos HTTP', 3, 4, '#ffcc00');
   emitir('[METODOS] a verificar metodos HTTP perigosos...', 'info', 3);
-  const metodosTemp = [];
 
-  for (const metodo of ['PUT', 'DELETE', 'TRACE', 'PATCH']) {
-    let status = 0;
-    await executarComandoSeguro('curl', [
-      '-s', '-o', '/dev/null', '-w', '%{http_code}',
-      '--max-time', '8', '--connect-timeout', '5',
-      '-X', metodo, targetUrl,
-    ], l => {
-      const code = parseInt(l.trim());
-      if (!isNaN(code) && code > 0) status = code;
-    }, 10000);
+  const metodosATestar = TESTAR_METODOS_MODIFICADORES
+    ? [...METODOS_SEM_RISCO_ESCRITA, ...METODOS_MODIFICADORES]
+    : METODOS_SEM_RISCO_ESCRITA;
 
-    if (status && ![0, 403, 405, 501, 411].includes(status)) {
-      emitir(`[METODOS] ${metodo} aceite (HTTP ${status})`, 'warning', 3);
-      if (metodo === 'TRACE')
-        metodosTemp.push({ t: 'TRACE ativo', d: 'Risco de Cross-Site Tracing (XST).', r: 'Desativar TRACE no servidor.', i: 6, vetor: VETORES_METODO.TRACE });
-      else if (['PUT', 'DELETE'].includes(metodo))
-        metodosTemp.push({ t: `Metodo ${metodo} disponivel`, d: `${metodo} acessivel sem autenticacao.`, r: `Restringir ${metodo}.`, i: 7, vetor: VETORES_METODO[metodo] });
-    } else {
-      emitir(`[METODOS] ${metodo} bloqueado`, 'success', 3);
-    }
+  if (!TESTAR_METODOS_MODIFICADORES) {
+    emitir(
+      '[METODOS] Métodos modificadores (PUT/DELETE/PATCH) desativados por defeito ' +
+      '— ativar apenas contra alvos de laboratório autorizados e descartáveis.',
+      'warning', 3
+    );
   }
 
-  metodosTemp.forEach(f =>
-    adicionarFinding(f.t, f.d, 'http-methods', 3, f.i, 7, f.r, null, false, f.vetor));
+  const resultadosMetodos = [];
+
+  for (const metodo of metodosATestar) {
+    let status = 0;
+    let falhaLigacao = false;
+
+    try {
+      await executarComandoSeguro('curl', [
+        '-s', '-o', '/dev/null', '-w', '%{http_code}',
+        '--max-time', '8', '--connect-timeout', '5',
+        '-X', metodo, targetUrl,
+      ], l => {
+        const code = parseInt(l.trim());
+        if (!isNaN(code) && code > 0) status = code;
+      }, 10000);
+    } catch (e) {
+      falhaLigacao = true;
+    }
+
+    let classificacao;
+    if (falhaLigacao || status === 0) {
+      classificacao = 'inconclusivo';
+      emitir(`[METODOS] ${metodo}: inconclusivo (timeout/falha de ligação — não é resposta do servidor)`, 'warning', 3);
+    } else if (CODIGOS_BLOQUEADO.includes(status)) {
+      classificacao = 'bloqueado';
+      emitir(`[METODOS] ${metodo} bloqueado (HTTP ${status})`, 'success', 3);
+    } else if (CODIGOS_INCONCLUSIVOS.includes(status)) {
+      classificacao = 'inconclusivo';
+      emitir(`[METODOS] ${metodo}: inconclusivo (HTTP ${status} não confirma aceitação nem bloqueio)`, 'warning', 3);
+    } else {
+      classificacao = 'aceite';
+      emitir(`[METODOS] ${metodo} aceite (HTTP ${status})`, 'critical', 3);
+    }
+
+    resultadosMetodos.push({ metodo, status: status || 'sem resposta', classificacao });
+  }
+
+  // Findings estruturados: só para resultados 'aceite' — inconclusivos
+  // nunca geram finding de vulnerabilidade (evita falsos positivos).
+  resultadosMetodos
+    .filter(r => r.classificacao === 'aceite')
+    .forEach(r => {
+      if (r.metodo === 'TRACE') {
+        adicionarFinding(
+          'TRACE ativo', `Método TRACE aceite pelo servidor (HTTP ${r.status}). Risco de Cross-Site Tracing (XST).`,
+          'http-methods', 3, 6, 8, 'Desativar TRACE no servidor.', null, false,
+          VETORES_METODO.TRACE
+        );
+      } else {
+        adicionarFinding(
+          `Método ${r.metodo} disponível`, `${r.metodo} aceite pelo servidor (HTTP ${r.status}), sem confirmação de autenticação.`,
+          'http-methods', 3, 7, 7, `Restringir ${r.metodo} a utilizadores autenticados ou desativar.`, null, false,
+          VETORES_METODO[r.metodo]
+        );
+      }
+    });
+
+  emitir(
+    `[METODOS] Resumo: ${resultadosMetodos.filter(r => r.classificacao === 'aceite').length} aceite(s), ` +
+    `${resultadosMetodos.filter(r => r.classificacao === 'bloqueado').length} bloqueado(s), ` +
+    `${resultadosMetodos.filter(r => r.classificacao === 'inconclusivo').length} inconclusivo(s)`,
+    'info', 3
+  );
 
   // ── CVE ───────────────────────────────────────────────────────────────────────
   progresso('Correlacao CVE', 4, 4, '#ffcc00');

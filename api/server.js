@@ -7,6 +7,7 @@ const { Server }   = require('socket.io');
 const helmet       = require('helmet');
 const cors         = require('cors');
 const path         = require('path');
+const jwt          = require('jsonwebtoken');
 
 const { swaggerUi, swaggerDocument } = require('./utils/swagger');
 const { apiLimiter }   = require('./middleware/rateLimit');
@@ -31,6 +32,30 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3001;
+
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 16) {
+  console.error(
+    '[SERVER] ERRO FATAL: JWT_SECRET não está definido ou é demasiado curto (mínimo 16 caracteres).\n' +
+    '         Gere um valor forte com: openssl rand -hex 32'
+  );
+  process.exit(1);
+}
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    return next(new Error('Autenticação necessária'));
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    socket.user = payload;
+    next();
+  } catch (err) {
+    next(new Error('Token inválido ou expirado'));
+  }
+});
 
 // Injetar Socket.IO nas rotas de scan
 scanRoutes.setIO(io);
@@ -66,7 +91,11 @@ app.get('*', (req, res) => {
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
-  console.log(`[WS] Cliente ligado: ${socket.id}`);
+  console.log(`[WS] Cliente ligado: ${socket.id} (utilizador: ${socket.user.uid})`);
+
+  // Associa o socket a uma sala identificada pelo seu próprio uid — usada
+  // por scanner.js para restringir a emissão de eventos ao dono do scan.
+  socket.join(`user:${socket.user.uid}`);
 
   //  Responde ao ping do cliente para manter ligação viva
   socket.on('ping', () => socket.emit('pong'));
