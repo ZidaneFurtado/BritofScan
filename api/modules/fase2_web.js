@@ -3,7 +3,7 @@ const { ferramentaInstalada, executarComandoSeguro, httpGet } = require('./utils
 const {
   VETORES_FICHEIRO, VETOR_WAF_AUSENTE, VETOR_HTTPS_NAO_FORCADO,
   VETOR_TLS_DESATUALIZADO, VETOR_NIKTO_GENERICO, VETORES_NUCLEI_BANDA,
-} = require('./scoring');
+} = require('./scoringCVSS');
 
 const VETOR_INFORMATIVO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
 const VETOR_CERT_EXPIRANDO = 'AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L';
@@ -122,6 +122,17 @@ async function analisarSSL(host, emitir, adicionarFinding) {
 }
 
 // ── NIKTO ─────────────────────────────────────────────────────────────────────
+
+const NIKTO_LINHAS_INFORMATIVAS = [
+  /^target ip:/i,
+  /^target hostname:/i,
+  /^target port:/i,
+  /^start time:/i,
+  /^end time:/i,
+  /^\d+ (host|item)s? tested/i,
+  /^\+ \d+ requests:/i,
+];
+
 async function executarNikto(targetUrl, emitir, adicionarFinding) {
   emitir('[NIKTO] a executar scan web (sem limite de tempo)...', 'info', 2);
   if (!(await ferramentaInstalada('nikto'))) {
@@ -134,13 +145,17 @@ async function executarNikto(targetUrl, emitir, adicionarFinding) {
     l => {
       if (l.startsWith('+ ') && !l.includes('ERROR') && !l.includes('maximum execution')) {
         const clean = l.replace(/^\+\s*/, '').trim();
-        if (clean.length > 15) {
+        const eInformativa = NIKTO_LINHAS_INFORMATIVAS.some(padrao => padrao.test(clean));
+
+        if (clean.length > 15 && !eInformativa) {
           emitir(`[NIKTO] ${clean}`, 'output', 2);
           adicionarFinding(
             `Nikto: ${clean.substring(0, 100)}`, clean,
             'nikto', 2, 5, 7, 'Aplicar correcoes indicadas.', null, false,
             VETOR_NIKTO_GENERICO
           );
+        } else if (eInformativa) {
+          emitir(`[NIKTO] (info) ${clean}`, 'output', 2);
         }
       }
     }, 180000); // 5 minutos
