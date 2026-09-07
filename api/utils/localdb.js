@@ -7,7 +7,7 @@ const DATA_DIR = path.join(__dirname, '../../data');
 const DB_FILE  = path.join(DATA_DIR, 'britofscan_db.json');
 
 // Estrutura inicial da BD
-const DB_INICIAL = { utilizadores: {}, scans: {} };
+const DB_INICIAL = { utilizadores: {}, scans: {}, alvosAutorizados: {} };
 
 // ── Helpers de I/O ────────────────────────────────────────────────────────────
 
@@ -15,7 +15,10 @@ function lerDB() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE))  fs.writeFileSync(DB_FILE, JSON.stringify(DB_INICIAL, null, 2));
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    // Compatibilidade com bases de dados criadas antes desta funcionalidade
+    if (!db.alvosAutorizados) db.alvosAutorizados = {};
+    return db;
   } catch {
     return { ...DB_INICIAL };
   }
@@ -95,4 +98,53 @@ const scans = {
   },
 };
 
-module.exports = { utilizadores, scans };
+// ── API de alvos autorizados (whitelist gerível por Administrador) ───────────
+
+
+const alvosAutorizados = {
+  /** Lista todos os alvos autorizados */
+  listar() {
+    const db = lerDB();
+    return Object.values(db.alvosAutorizados);
+  },
+
+  /** Adiciona um alvo (hostname ou IP, sem protocolo) à whitelist */
+  adicionar(alvo, adicionadoPorUid) {
+    const db = lerDB();
+    const alvoNormalizado = String(alvo).trim().toLowerCase();
+    if (!alvoNormalizado) throw new Error('Alvo em branco');
+
+    const jaExiste = Object.values(db.alvosAutorizados)
+      .some(a => a.alvo === alvoNormalizado);
+    if (jaExiste) throw new Error('Este alvo já está na lista de autorizados');
+
+    const id  = `alvo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const doc = { id, alvo: alvoNormalizado, adicionadoPor: adicionadoPorUid, criadoEm: new Date().toISOString() };
+    db.alvosAutorizados[id] = doc;
+    gravarDB(db);
+    return doc;
+  },
+
+  /** Remove um alvo autorizado por ID */
+  remover(id) {
+    const db = lerDB();
+    if (!db.alvosAutorizados[id]) throw new Error('Alvo não encontrado');
+    delete db.alvosAutorizados[id];
+    gravarDB(db);
+  },
+
+  /**
+   * Verifica se um host está autorizado. Comparação case-insensitive e
+   * exata (sem wildcards) — um alvo autorizado como "exemplo.com" NÃO
+   * autoriza automaticamente "sub.exemplo.com".
+   */
+  estaAutorizado(host) {
+    const db    = lerDB();
+    const lista = Object.values(db.alvosAutorizados);
+    if (lista.length === 0) return true; // lista vazia = comportamento anterior (aberto)
+    const alvoNormalizado = String(host).trim().toLowerCase();
+    return lista.some(a => a.alvo === alvoNormalizado);
+  },
+};
+
+module.exports = { utilizadores, scans, alvosAutorizados };

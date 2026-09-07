@@ -14,6 +14,7 @@ const { apiLimiter }   = require('./middleware/rateLimit');
 const authRoutes        = require('./routes/auth');
 const scanRoutes        = require('./routes/scan');
 const reportsRoutes     = require('./routes/reports');
+const alvosRoutes       = require('./routes/alvos');
 
 const app    = express();
 const server = http.createServer(app);
@@ -32,7 +33,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3001;
-
+const HOST = process.env.HOST || '127.0.0.1';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 16) {
@@ -74,6 +75,7 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 app.use('/api/auth',    authRoutes);
 app.use('/api/scan',    scanRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/alvos',   alvosRoutes);
 
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
   customSiteTitle: 'BritofScan API Docs',
@@ -116,14 +118,14 @@ app.use((err, req, res, next) => {
 });
 
 // ─── Arranque ─────────────────────────────────────────────────────────────────
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`
 ╔══════════════════════════════════════════════════════════╗
 ║           BritofScan — Plataforma de Pentest             ║
 ╚══════════════════════════════════════════════════════════╝
 
-  Servidor:   http://localhost:${PORT}
-  API Docs:   http://localhost:${PORT}/api/docs
+  Servidor:   http://${HOST}:${PORT}
+  API Docs:   http://${HOST}:${PORT}/api/docs
   Firebase:   ${process.env.FIREBASE_PROJECT_ID || 'não configurado'}
 `);
 });

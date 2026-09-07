@@ -6,7 +6,7 @@ const { executarScan, validarAlvo } = require('../modules/scanner');
 const { gerarRelatorio } = require('../modules/reportGenerator');
 const { verifyToken }    = require('../middleware/auth');
 const { scanLimiter }    = require('../middleware/rateLimit');
-const { scans }          = require('../utils/localdb');
+const { scans, alvosAutorizados } = require('../utils/localdb');
 
 let io;
 function setIO(ioInstance) { io = ioInstance; }
@@ -15,10 +15,21 @@ function setIO(ioInstance) { io = ioInstance; }
 router.post('/start', verifyToken, scanLimiter, async (req, res) => {
   const { target, mode = 'standard', format = 'json' } = req.body;
   if (!target) return res.status(400).json({ erro: 'Alvo (target) é obrigatório' });
+
+  let hostValidado;
   try {
-    await validarAlvo(target);
+    hostValidado = await validarAlvo(target);
   } catch (e) {
     return res.status(400).json({ erro: e.message });
+  }
+
+  // Whitelist de alvos autorizados — se o Administrador tiver configurado
+  // pelo menos um alvo, só esses são aceites (ver localdb.js:alvosAutorizados).
+  if (!alvosAutorizados.estaAutorizado(hostValidado)) {
+    return res.status(403).json({
+      erro: `Alvo "${hostValidado}" não está na lista de alvos autorizados. ` +
+            'Pede a um Administrador para o adicionar em /api/alvos.',
+    });
   }
 
   const modos = ['stealth', 'standard', 'aggressive'];

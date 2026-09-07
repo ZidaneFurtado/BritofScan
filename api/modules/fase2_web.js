@@ -1,5 +1,5 @@
 // fase2_web.js - Analise Web
-const { ferramentaInstalada, executarComandoSeguro, httpGet } = require('./utils');
+const { ferramentaInstalada, executarComandoSeguro, httpGet, validarAlvo } = require('./utils');
 const {
   VETORES_FICHEIRO, VETOR_WAF_AUSENTE, VETOR_HTTPS_NAO_FORCADO,
   VETOR_TLS_DESATUALIZADO, VETOR_NIKTO_GENERICO, VETORES_NUCLEI_BANDA,
@@ -185,6 +185,65 @@ async function executarNuclei(targetUrl, emitir, adicionarFinding) {
     }, 60000);
 }
 
+// ── FILE-SCANNER (com revalidacao de redirecionamentos) ──────────────────────
+
+
+const MAX_REDIRECIONAMENTOS = 2;
+
+/** Faz um único pedido HEAD via curl, sem seguir redirecionamentos. */
+function pedidoHeadCurl(url) {
+  return new Promise(async resolve => {
+    let statusCode = 0;
+    let location = null;
+    await executarComandoSeguro('curl', [
+      '-sI', '-D', '-', '-o', '/dev/null',
+      '--max-time', '8',
+      '--connect-timeout', '5',
+      url,
+    ], l => {
+      const mStatus = l.match(/^HTTP\/[\d.]+\s+(\d{3})/i);
+      if (mStatus) statusCode = parseInt(mStatus[1], 10);
+      const mLoc = l.match(/^location:\s*(\S+)/i);
+      if (mLoc) location = mLoc[1];
+    }, 10000);
+    resolve({ statusCode, location });
+  });
+}
+
+/**
+ */
+async function verificarCaminhoComRevalidacao(urlInicial, emitir) {
+  let urlAtual = urlInicial;
+
+  for (let salto = 0; salto <= MAX_REDIRECIONAMENTOS; salto++) {
+    const { statusCode, location } = await pedidoHeadCurl(urlAtual);
+
+    const ehRedirecionamento = [301, 302, 303, 307, 308].includes(statusCode);
+    if (!ehRedirecionamento || !location) {
+      return statusCode;
+    }
+
+    let proximaUrl;
+    try {
+      proximaUrl = new URL(location, urlAtual).toString();
+    } catch {
+      return statusCode; // Location inválido — tratar como resultado final
+    }
+
+    try {
+      await validarAlvo(proximaUrl);
+    } catch (e) {
+      emitir(`[FICHEIROS] redirecionamento bloqueado (SSRF): ${proximaUrl}`, 'warning', 2);
+      return -1;
+    }
+
+    urlAtual = proximaUrl;
+  }
+
+  emitir(`[FICHEIROS] demasiados redirecionamentos a partir de ${urlInicial}`, 'warning', 2);
+  return -2;
+}
+
 // ── ORQUESTRADOR — Fase 2 ─────────────────────────────────────────────────────
 async function executarFase2(targetUrl, host, mode, emitir, progresso, adicionarFinding) {
   emitir('[2/4] ANALISE WEB', 'phase', 2);
@@ -213,19 +272,8 @@ async function executarFase2(targetUrl, host, mode, emitir, progresso, adicionar
   emitir(`[FICHEIROS] a verificar ${FICHEIROS_SENSIVEIS.length} caminhos...`, 'info', 2);
   const findingsTemp = [];
 
-  // Usar curl em vez de httpGet — IIS dropa requests Node.js para caminhos suspeitos
   for (const alvo of FICHEIROS_SENSIVEIS) {
-    let status = 0;
-    await executarComandoSeguro('curl', [
-      '-sI', '-o', '/dev/null', '-w', '%{http_code}',
-      '--max-time', '8',
-      '--connect-timeout', '5',
-      '-L',
-      `${targetUrl}${alvo.path}`,
-    ], l => {
-      const code = parseInt(l.trim());
-      if (!isNaN(code) && code > 0) status = code;
-    }, 10000);
+    const status = await verificarCaminhoComRevalidacao(`${targetUrl}${alvo.path}`, emitir);
 
     if ([200, 301, 302].includes(status)) {
       emitir(`[FICHEIROS] ENCONTRADO: ${alvo.path} (HTTP ${status})`, 'critical', 2);
@@ -236,6 +284,11 @@ async function executarFase2(targetUrl, host, mode, emitir, progresso, adicionar
         remediacao: `Bloquear acesso a ${alvo.path}.`, cve: null, simulado: false,
         vetorCVSS:  VETORES_FICHEIRO[alvo.path] || null,
       });
+    } else if (status === -1) {
+      // Redirecionamento suspeito — já registado em emitir(), não gera finding
+      // de "ficheiro encontrado" porque nunca chegámos a confirmar o destino.
+    } else if (status === -2) {
+      // Demasiados redirecionamentos — idem, sem finding.
     } else if (status > 0) {
       emitir(`[FICHEIROS] ${alvo.path} -> ${status}`, 'output', 2);
     } else {
