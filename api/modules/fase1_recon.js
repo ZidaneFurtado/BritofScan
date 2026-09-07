@@ -3,7 +3,7 @@ const { ferramentaInstalada, executarComandoSeguro } = require('./utils');
 const { existsSync } = require('fs');
 const path = require('path');
 const os   = require('os');
-const { VETORES_PORTA, VETORES_CVE } = require('./scoring');
+const { VETORES_PORTA, VETORES_CVE } = require('./scoringCVSS');
 
 const PORTOS_INFO = {
   '21':    { impacto: 8, desc: 'FTP inseguro - usar SFTP.' },
